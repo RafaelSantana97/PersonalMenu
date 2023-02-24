@@ -5,6 +5,7 @@ const recipeController = require('./controllers/RecipeController')
 const ingredientController = require('./controllers/IngredientController')
 
 router.get('/recipes', recipeController.getAll)
+router.get('/recipes/personalized/:userId', recipeController.getPersonalizedRecipes)
 
 router.get('/ingredients/with-personal-selection', ingredientController.getAllWithPersonalSelection)
 router.put('/ingredients/add-personal-selection/:userId/:tagId', ingredientController.addPersonalSelection)

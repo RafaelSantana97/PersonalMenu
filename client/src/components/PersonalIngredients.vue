@@ -1,6 +1,6 @@
 <template>
   <v-card-text>
-    <h2 class="text-h6 mb-2">Select what we have on your pantry and fridge</h2>
+    <h2 class="text-h6 mb-2">Select what you have on your pantry and fridge</h2>
 
     <v-chip-group v-model="owned" column multiple>
       <v-chip
@@ -39,7 +39,6 @@ axios
   });
 
 const toggle = (idx) => {
-  console.log(owned.value);
   if (ingredients.value[idx].owned) {
     axios
       .delete(
