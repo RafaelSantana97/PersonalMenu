@@ -1,74 +1,94 @@
 const mysql = require('mysql')
+const csv = require('csv-parser')
+const fs = require('fs')
 
 const connection = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: 'admin',
   database: 'dbMenu'
-});
+})
 
-connection.connect();
-
-const csv = require('csv-parser');
-const fs = require('fs');
-
-fs.createReadStream('data/dataset/full_dataset.csv')
-  .pipe(csv())
-  .on('data', (row) => {
-    // Inserir na tabela 'recipes'
-    connection.query('INSERT INTO recipes (title, link) VALUES (?, ?)', [row.title, row.link], (error, r_results) => {
-      if (error) throw error;
-
-      const recipeId = r_results.insertId;
-
-      // Inserir na tabela 'recipe_directions'
-      const directions = JSON.parse(row.directions);
-      let query_rd = 'INSERT INTO recipe_directions (recipe_id, direction) VALUES'
-      let values_rd = []
-      for (let i = 0; i < directions.length; i++) {
-        values_rd.push(recipeId, directions[i])
-        query_rd += '(?, ?),'
+const connect = () => {
+  return new Promise((resolve, reject) => {
+    connection.connect((error) => {
+      if (error) {
+        reject(error)
+      } else {
+        resolve()
       }
-      connection.query(query_rd.slice(0, -1), values_rd, (error) => {
-        if (error) throw error;
-      });
-
-
-      // Inserir na tabela 'recipe_ingredients'
-      const ingredients = JSON.parse(row.ingredients);
-      let query_ri = 'INSERT INTO recipe_ingredients (recipe_id, ingredient_description) VALUES'
-      let values_ri = []
-      for (let i = 0; i < ingredients.length; i++) {
-        values_ri.push(recipeId, ingredients[i])
-        query_ri += '(?, ?),'
-      }
-
-      values_ri.length > 0 && connection.query(query_ri.slice(0, -1), values_ri, (error) => {
-        if (error) throw error;
-      });
-
-      // Inserir na tabela 'ingredient_tags' e 'recipe_ingredient_tags'
-      const ingredientTags = JSON.parse(row.ingredient_tags);
-      for (let i = 0; i < ingredientTags.length; i++) {
-        const insertIngredientTag = new Promise((resolve, reject) => {
-          connection.query('INSERT INTO ingredient_tags (name) VALUES (?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)', [ingredientTags[i]], (error, i_results) => {
-            if (error) reject(error);
-            resolve(i_results.insertId);
-          });
-        });
-
-        insertIngredientTag.then((ingredientTagId) => {
-          console.log(ingredientTagId)
-          connection.query('INSERT INTO recipe_ingredient_tags (recipe_id, ingredient_tag_id) VALUES (?, ?)', [recipeId, ingredientTagId], (error) => {
-            if (error) throw error;
-          });
-        }).catch((error) => {
-          throw error;
-        });
-      }
-    });
+    })
   })
-  .on('end', () => {
-    console.log('Inserção concluída');
-    connection.end();
-  });
+}
+
+const query = (sql, values) => {
+  return new Promise((resolve, reject) => {
+    connection.query(sql, values, (error, results) => {
+      if (error) {
+        reject(error)
+      } else {
+        resolve(results)
+      }
+    })
+  })
+}
+
+const insertIngredientTag = (ingredientTag) => {
+  return new Promise((resolve, reject) => {
+    const sql = 'INSERT INTO ingredient_tags (name) VALUES (?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)'
+    const values = [ingredientTag]
+
+    connection.query(sql, values, (error, results) => {
+      if (error) {
+        reject(error)
+      } else {
+        resolve(results.insertId)
+      }
+    })
+  })
+}
+
+const insertRecipe = async (row) => {
+  // Inserir na tabela 'recipes'
+  const recipeResult = await query('INSERT INTO recipes (title, link) VALUES (?, ?)', [row.title, row.link])
+  const recipeId = recipeResult.insertId
+
+  // Inserir na tabela 'recipe_directions'
+  const directions = JSON.parse(row.directions)
+  const directionValues = directions.map((direction) => [recipeId, direction])
+  const directionQuery = 'INSERT INTO recipe_directions (recipe_id, direction) VALUES ?'
+  await query(directionQuery, [directionValues])
+
+  // Inserir na tabela 'recipe_ingredients'
+  const ingredients = JSON.parse(row.ingredients)
+  const ingredientValues = ingredients.map((ingredient) => [recipeId, ingredient])
+  const ingredientQuery = 'INSERT INTO recipe_ingredients (recipe_id, ingredient_description) VALUES ?'
+  await query(ingredientQuery, [ingredientValues])
+
+  // Inserir na tabela 'ingredient_tags' e 'recipe_ingredient_tags'
+  const ingredientTags = JSON.parse(row.ingredient_tags)
+  for (let i = 0; i < ingredientTags.length; i++) {
+    const ingredientTagId = await insertIngredientTag(ingredientTags[i])
+    await query('INSERT INTO recipe_ingredient_tags (recipe_id, ingredient_tag_id) VALUES (?, ?)', [recipeId, ingredientTagId])
+  }
+}
+
+const main = async () => {
+  try {
+    await connect()
+
+    const stream = fs.createReadStream('data/dataset/full_dataset.csv').pipe(csv())
+
+    for await (const row of stream) {
+      await insertRecipe(row)
+    }
+
+    console.log('Inserção concluída')
+    connection.end()
+  } catch (error) {
+    console.error(error)
+    connection.end()
+  }
+}
+
+main()
